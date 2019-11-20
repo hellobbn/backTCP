@@ -93,20 +93,23 @@ int main(int argc, const char * argv[]) {
     while(1) {  // infinity loop, only breaks if the file reaches its end
         // first, prepare data to the full window
 
-        while ((seq < curr_end) || (curr_end < curr_start && seq < curr_end + MAX_SEQ_NUM)) {  // this means the window is not full, not reaching the end, fill the window?
+        while ((seq < curr_end) || (curr_end < curr_start && seq < curr_start && seq < curr_end) || (curr_end < curr_start && seq >= curr_start && seq < curr_end + MAX_SEQ_NUM)) {  // this means the window is not full, not reaching the end, fill the window?
                                      // FIXME: not right judgement
             bytes_read = fread(buff_send, 1, 64, fptr);  // copies at most 64 bytes data to buff_send
             printf("DEBUG: seq = %d, curr_start = %d, current_point = %d, curr_end = %d\n", seq, curr_start, pkg_point, curr_end);
             printf("DEBUG: not hitting the end, read %lu bytes, making package.\n", bytes_read);
             if(bytes_read != 0) {
-                printf("DEBUG: Send...\n");
+                printf("DEBUG: Send... seq = %d\n", seq);
                 pkgBuf[seq] = newPacket(SERVPORT, 12345, seq, 0, (int)bytes_read, WIN_SIZE, 0, buff_send);
                 write(sockfd, pkgBuf[seq], sizeof(bpkg));
             } else {
                 end_of_file = 1;
                 // set curr_end
-                curr_end = (seq + 1) % MAX_SEQ_NUM;
+                curr_end = (seq) % MAX_SEQ_NUM;
                 printf("DEBUG: end of file! don't add curr_end\n");
+                printf("DEBUG: -------------------------------\n");
+                printf("DEBUG: Set FINAL curr_end at %d\n", curr_end);
+                printf("DEBUG: -------------------------------\n");
                 break;
             }
             if(seq == curr_start) {
@@ -127,25 +130,29 @@ int main(int argc, const char * argv[]) {
             printf("DEBUG: sender: received package.\n");
             revPkg = (pbpkg)recv_buffer;
             int curr_ack = revPkg->btcpHeader.btcp_ack;
+            if(revPkgLen == 0) {
+                continue;
+            }
             if((curr_ack >= curr_start && curr_ack < curr_end) || (curr_end < curr_start && (curr_ack >= curr_start || curr_ack < curr_end))) {
                 // right ack, move the window
                 // restart timers
                 printf("DEBUG: sender: ack = %d, right\n", revPkg->btcpHeader.btcp_ack);
                 curr_start = (curr_ack + 1) % MAX_SEQ_NUM;
                 if(end_of_file == 0) {
-                    curr_end = (curr_start + WIN_SIZE + 1) % MAX_SEQ_NUM;
+                    curr_end = (curr_start + WIN_SIZE ) % MAX_SEQ_NUM;
                 }
                 stop_timer();
                 start_timer();  // restart timer
                 printf("DEBUG: reset timer\n");
                 pkg_point = curr_start;
-                if (pkg_point == curr_end - 1 && end_of_file) {
+                if (pkg_point == curr_end && end_of_file) {
                     break;
                 }
             } else {
                 // this means wrong ack, drop
                 // don't do anything?
                 printf("DEBUG: sender: ack = %d, wrong.\n", revPkg->btcpHeader.btcp_ack);
+                printf("DEBUG: waiting for ACK for package seq %d\n", pkg_point);
             }
         }
 
@@ -204,9 +211,10 @@ void catch_alarm(int sig) {
     // this is the timeout handler
     // timeout, so we resend all packages from the timeouted package.
     
-    printf("Timed Out for package %d\n", pkg_point);
+    printf("DEBUG: Timed Out for package %d, sending package starting at %d\n", pkg_point, pkg_point);
     int cnt = 0;
-    for(int i = pkg_seq_point; cnt < WIN_SIZE; ++ cnt) {
+    for(int i = pkg_point; cnt < curr_end; ++ cnt) {
+        printf("DEBUG: TimeOut Routine, sending seq = %d\n", pkgBuf[i]->btcpHeader.btcp_seq);
         pkgBuf[i]->btcpHeader.flag = 1;
         write(sockfd, pkgBuf[i], sizeof(bpkg));
         i = (i + 1) % MAX_SEQ_NUM;

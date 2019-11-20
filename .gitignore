@@ -4,3 +4,4 @@ client
 input.bin
 input.txt
 output.txt
+*.log

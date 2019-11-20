@@ -20,7 +20,7 @@
 #include <arpa/inet.h>
 
 #define BUFFER_MAX 512  // max buffer size
-#define PORT 12345  // port to connect
+#define PORT 12344  // port to connect
 #define PSIZE 64
 #define SEQ_MAX 32
 
@@ -109,29 +109,6 @@ int main(void) {
     if(fptr == NULL) {
         return 1;
     }
-
-    // // socket create and verification
-    // sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    // if(sockfd == -1) { // error
-    //     panic("client: Failed to create the socket.\n");
-    // } else {
-    //     printf("client: Successfully create the socket.\n");
-    // }
-    // bzero(&servaddr, sizeof(servaddr));
-
-    // // assign ip and port
-    // servaddr.sin_family = AF_INET;
-    // servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    // servaddr.sin_port = htons(PORT);
-
-    // // connect the client socket to server
-    // if (connect(sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) != 0) {
-    //     panic("client: Connection with the server failed.\n");
-    // } else {
-    //     printf("client: Connected to the server.\n");
-    // }
-
-
     // socket creation and verification
 
     struct sockaddr_in servaddr, cli;
@@ -186,6 +163,7 @@ int main(void) {
                 // and the client expects the sequence of the first package to be 0
     seq = 0;
     int lastack = 0;
+    int first = 1;
     int size;
     while (1) {
         size = read(connfd, buffer, sizeof(bpkg));  // read from the socket, 1 package
@@ -198,14 +176,21 @@ int main(void) {
         if(seq != p->btcpHeader.btcp_seq) {  // not receiving the expected package
             // discard, resend the ack
             // is windows size effective when the receiver sends ACK?
+            if(first == 1) {
+                lastack = -1;
+            }
+            printf("DEBUG: ACK %d\n", lastack);
             pbpkg np = newPackage(PORT, PORT, seq, lastack, 0, 0, 0, NULL);
             write(connfd, np, sizeof(bpkg));
         } else {
             // great!
             // write the data to file
+            first = 0;
             printf("DEBUG: Writing message to file, size: %d\n", p->btcpHeader.data_off);
             fwrite(p->payload, p->btcpHeader.data_off, 1, fptr);
+            lastack = p->btcpHeader.btcp_seq;
             pbpkg np = newPackage(PORT, PORT, seq, p->btcpHeader.btcp_seq, 0, 0, 0, NULL);
+            printf("DEBUG: ACK %d\n", p->btcpHeader.btcp_seq);
             write(connfd, np, sizeof(bpkg));
             seq = (seq + 1) % SEQ_MAX;
         }
